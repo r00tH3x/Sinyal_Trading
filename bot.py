@@ -32,9 +32,9 @@ def safe_compare(value1, value2, comparison_type=">"):
         return False
 
 if not firebase_admin._apps:
-    cred = credentials.Certificate("serviceAccountKey.json")
+    cred = credentials.Certificate("your-key-json")
     firebase_admin.initialize_app(cred, {
-        'storageBucket': 'pesanapp-12b90.appspot.com'
+        'storageBucket': 'your-storagebucket'
     })
 
 db = firestore.client()
@@ -857,1149 +857,478 @@ def run_signal_scanner():
             print(f"Error {pair_name}: {e}")
           
 def check_whales():
-
     global last_processed_trade_id
-
     exchange = ccxt.binance()
-
-
-
     try:
-
         trades = exchange.fetch_trades('BTC/USDT', limit=50)
-
         for trade in trades:
-
             if int(trade['id']) <= last_processed_trade_id:
-
                 continue
 
-
-
             if trade['cost'] >= MIN_WHALE_VALUE:
-
                 print(f"🐋 WHALE: {trade['side']} ${trade['cost']:,.0f}")
-
-
-
-                # FORMAT YANG LEBIH BAIK UNTUK FLUTTER
-
                 whale_data = {
-
                     'symbol': 'BTC',
-
                     'amount': round(float(trade['amount']), 6),
-
                     'usd': round(float(trade['cost']), 2),
-
                     'from': 'Binance',
-
                     'to': f"Market {trade['side']}",
-
                     'timestamp': datetime.now(),
-
                     'hash': str(trade['id']),
-
-                    'side': trade['side'],  # Tambah field side untuk color coding
-
-                    'price': round(float(trade['price']), 2),  # Harga execution
-
+                    'side': trade['side'],  
+                    'price': round(float(trade['price']), 2),  
                 }
-
-
-
                 db.collection('whales').document(str(trade['id'])).set(whale_data)
 
-
-
         if trades:
-
             last_processed_trade_id = int(trades[-1]['id'])
-
     except Exception as e:
-
         print(f"Whale Error: {e}")
 
-
-
-# ==========================================
-
-# ECONOMIC CALENDAR
-
-# ==========================================
-
 def check_calendar():
-
     print("    [EVENT] Updating Calendar...")
-
     url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
-
-
-
     try:
-
         data = requests.get(url).json()
-
         today_str = datetime.now().strftime("%Y-%m-%d")
-
-
 
         count = 0
 
         for event in data:
-
             title = event['title']
-
             country = event['country']
-
             date_full = event['date']
-
             impact = event['impact']
-
             forecast = event.get('forecast', '')
-
             actual = event.get('actual', '')
 
-
-
             if today_str not in date_full:
-
                 continue
-
             if impact == 'Low':
-
                 continue
-
-
 
             event_time = dateutil.parser.parse(date_full)
-
             time_str = event_time.strftime("%H:%M")
-
-
-
             insight = "Menunggu Rilis Data..."
-
             status = "UPCOMING"
 
-
-
             if actual != '':
-
                 status = "RELEASED"
-
                 try:
-
                     act_val = float(actual.replace('%','').replace('K','').replace('M',''))
-
                     fc_val = float(forecast.replace('%','').replace('K','').replace('M',''))
 
-
-
                     is_unemployment = 'Unemployment' in title
-
                     is_good_for_currency = False
 
-
-
                     if is_unemployment:
-
                         if act_val < fc_val:
-
                             is_good_for_currency = True
-
                     else:
-
                         if act_val > fc_val:
-
                             is_good_for_currency = True
-
-
 
                     if country == 'USD':
-
                         if is_good_for_currency:
-
                             insight = "🔥 USD MENGUAT! \n📉 Potensi: GOLD (XAU), EURUSD, BTC cenderung TURUN."
-
                         else:
-
                             insight = "🩸 USD MELEMAH! \n🚀 Potensi: GOLD (XAU), EURUSD, BTC cenderung NAIK."
-
                     else:
-
                         if is_good_for_currency:
-
                             insight = f"Positif untuk {country} 🔼"
-
                         else:
-
                             insight = f"Negatif untuk {country} 🔻"
-
                 except:
-
                     insight = f"Rilis Data: {actual}"
 
-
-
             safe_title = "".join(c for c in title if c.isalnum() or c in (' ','_')).rstrip()
-
             if not safe_title:
-
                 safe_title = "Event"
-
             doc_id = f"{today_str}-{safe_title.replace(' ','_')}"
 
-
-
-            # ENHANCE EVENT DATA UNTUK FLUTTER
-
             event_data = {
-
                 'title': title,
-
                 'country': country,
-
                 'impact': impact,
-
                 'time': time_str,
-
                 'forecast': forecast,
-
                 'actual': actual,
-
                 'insight': insight,
-
                 'timestamp': event_time,
-
                 'status': status,
-
-                'date': today_str,  # Tambah field date untuk filtering
-
-                'is_high_impact': impact == 'High',  # Untuk easy filtering
-
+                'date': today_str,  
+                'is_high_impact': impact == 'High',  
             }
 
-
-
             db.collection('events').document(doc_id).set(event_data)
-
             count += 1
 
-
-
         print(f"    [EVENT] {count} Events Updated.")
-
     except Exception as e:
-
         print(f"Calendar Error: {e}")
 
-
-
-# ==========================================
-
-# SIGNAL MONITORING & AUTO-UPDATE
-
-# ==========================================
-
 def get_current_price(pair, is_crypto=True):
-
-    """Ambil harga real-time (Fixed for YFinance Update)"""
-
     try:
-
         if is_crypto:
-
             exchange = ccxt.binance()
-
             ticker = exchange.fetch_ticker(pair)
-
-            return float(ticker['last']) # Pastikan float
-
+            return float(ticker['last']) 
         else:
-
-            # Untuk Forex (manual mapping)
-
             forex_map = {'XAU/USD': 'GC=F', 'EUR/USD': 'EURUSD=X', 'GBP/USD': 'GBPUSD=X', 'USD/JPY': 'JPY=X'}
-
             symbol = forex_map.get(pair)
-
             if symbol:
-
-                # Tambah auto_adjust=True biar warning hilang
-
                 df = yf.download(symbol, period='1d', interval='1m', progress=False, auto_adjust=True)
 
-
-
                 if df.empty:
-
                     return None
 
-
-
-                # AMBIL HARGA TERAKHIR
-
-                # Masalahnya disini: yfinance kadang balikin DataFrame, kadang Series
-
                 last_price = df['Close'].iloc[-1]
-
-
-
-                # FIX: Konversi paksa ke float scalar
-
                 try:
-
                     return float(last_price.iloc[0])
-
                 except:
-
-                    # Kalau masih error (misal bentuknya Series), ambil item pertamanya
-
                     return float(last_price.iloc[0])
 
-
-
         return None
-
     except Exception as e:
-
         print(f"Price Error {pair}: {e}")
-
         return None
-
-
 
 def monitor_active_signals():
-
-    """
-
-    Monitor semua sinyal ACTIVE:
-
-    1. Cek apakah TP/SL sudah tersentuh
-
-    2. Update status dan kirim notifikasi
-
-    3. Deteksi reversal (invalidasi sinyal)
-
-    4. Auto-close sinyal yang selesai
-
-    """
-
     try:
-
         signals = db.collection('signals').where('status', 'in', ['ACTIVE', 'HIT_TP1', 'HIT_TP2']).stream()
-
-
-
         for sig in signals:
-
             data = sig.to_dict()
-
             pair = data['pair']
-
             action = data['action']
-
             type_asset = data['type']
 
-
-
-            # Ambil harga sekarang
-
             is_crypto = (type_asset == 'CRYPTO')
-
             current_price = get_current_price(pair, is_crypto)
 
-
-
             if current_price is None:
-
                 continue
 
-
-
-            # Parse levels
-
             entry = float(data['entry'])
-
             tp1 = float(data['tp1'])
-
             tp2 = float(data['tp2'])
-
             tp3 = float(data['tp3'])
-
             sl = float(data['sl'])
-
             status = data['status']
 
-
-
-            # Timestamp signal dibuat
-
             signal_time = data['timestamp']
-
             if hasattr(signal_time, 'strftime'):
-
                 signal_time_str = signal_time.strftime("%d/%m/%Y %H:%M")
-
             else:
-
                 signal_time_str = "Unknown"
-
-
-
-            # ==========================================
-
-            # CEK LONG POSITION
-
-            # ==========================================
-
-            if action == "LONG":
-
-                # Hit Stop Loss
-
+                
+            if action == "LONG":          
                 if current_price <= sl:
-
                     update_signal_status(sig.id, 'HIT_SL', current_price, signal_time_str)
-
                     send_tp_sl_notification(pair, 'STOP LOSS', entry, current_price, signal_time_str)
-
                     print(f"❌ {pair} HIT SL: {current_price:.4f}")
-
-
-
-                # Hit TP3 (Semua target tercapai)
 
                 elif current_price >= tp3 and status != 'HIT_TP3':
-
                     update_signal_status(sig.id, 'HIT_TP3', current_price, signal_time_str)
-
                     send_tp_sl_notification(pair, 'TARGET 3 (ALL DONE!)', entry, current_price, signal_time_str)
-
                     print(f"✅✅✅ {pair} HIT TP3: {current_price:.4f}")
-
-
-
-                # Hit TP2
 
                 elif current_price >= tp2 and status == 'HIT_TP1':
-
                     update_signal_status(sig.id, 'HIT_TP2', current_price, signal_time_str)
-
                     send_tp_sl_notification(pair, 'TARGET 2', entry, current_price, signal_time_str)
-
                     print(f"✅✅ {pair} HIT TP2: {current_price:.4f}")
-
-
-
-                # Hit TP1
 
                 elif current_price >= tp1 and status == 'ACTIVE':
-
                     update_signal_status(sig.id, 'HIT_TP1', current_price, signal_time_str)
-
                     send_tp_sl_notification(pair, 'TARGET 1', entry, current_price, signal_time_str)
-
                     print(f"✅ {pair} HIT TP1: {current_price:.4f}")
 
-
-
-                # Deteksi Reversal (Price turun terlalu dalam)
-
-                elif status == 'ACTIVE' and current_price < entry * 0.98:  # Turun 2% dari entry
-
+                elif status == 'ACTIVE' and current_price < entry * 0.98: 
                     check_reversal(sig.id, pair, action, is_crypto, signal_time_str)
-
-
-
-            # ==========================================
-
-            # CEK SHORT POSITION
-
-            # ==========================================
 
             elif action == "SHORT":
-
-                # Hit Stop Loss
-
                 if current_price >= sl:
-
                     update_signal_status(sig.id, 'HIT_SL', current_price, signal_time_str)
-
                     send_tp_sl_notification(pair, 'STOP LOSS', entry, current_price, signal_time_str)
-
                     print(f"❌ {pair} HIT SL: {current_price:.4f}")
 
-
-
-                # Hit TP3
-
                 elif current_price <= tp3 and status != 'HIT_TP3':
-
                     update_signal_status(sig.id, 'HIT_TP3', current_price, signal_time_str)
-
                     send_tp_sl_notification(pair, 'TARGET 3 (ALL DONE!)', entry, current_price, signal_time_str)
-
                     print(f"✅✅✅ {pair} HIT TP3: {current_price:.4f}")
 
-
-
-                # Hit TP2
-
                 elif current_price <= tp2 and status == 'HIT_TP1':
-
                     update_signal_status(sig.id, 'HIT_TP2', current_price, signal_time_str)
-
                     send_tp_sl_notification(pair, 'TARGET 2', entry, current_price, signal_time_str)
-
                     print(f"✅✅ {pair} HIT TP2: {current_price:.4f}")
 
-
-
-                # Hit TP1
-
                 elif current_price <= tp1 and status == 'ACTIVE':
-
                     update_signal_status(sig.id, 'HIT_TP1', current_price, signal_time_str)
-
                     send_tp_sl_notification(pair, 'TARGET 1', entry, current_price, signal_time_str)
-
                     print(f"✅ {pair} HIT TP1: {current_price:.4f}")
 
-
-
-                # Deteksi Reversal
-
-                elif status == 'ACTIVE' and current_price > entry * 1.02:  # Naik 2% dari entry
-
+                elif status == 'ACTIVE' and current_price > entry * 1.02:  
                     check_reversal(sig.id, pair, action, is_crypto, signal_time_str)
 
-
-
-        # Auto-delete sinyal yang sudah selesai (HIT_TP3 atau HIT_SL) > 1 jam
-
         cleanup_old_signals()
-
-
-
     except Exception as e:
-
         print(f"Monitor Error: {e}")
 
-
-
 def update_signal_status(doc_id, new_status, hit_price, signal_time):
-
-    """Update status sinyal di Firestore"""
-
     try:
-
         db.collection('signals').document(doc_id).update({
-
             'status': new_status,
-
             'hit_price': str(hit_price),
-
             'hit_time': datetime.now(),
-
             'signal_created': signal_time
-
         })
-
     except Exception as e:
-
         print(f"Update Error: {e}")
 
-
-
-def send_tp_sl_notification(pair, event, entry, current, signal_time):
-
-    """Kirim notifikasi kalau TP/SL tersentuh"""
-
+def send_tp_sl_notification(pair, event, entry, current, signal_time): 
     try:
-
         profit_pct = ((current - entry) / entry) * 100
-
-
-
         if event == 'STOP LOSS':
-
             title = f"❌ {pair} - Stop Loss Hit"
-
             body = f"Entry: {entry:.4f} | Loss: {profit_pct:.2f}%\nSignal: {signal_time}"
-
         else:
-
             title = f"✅ {pair} - {event} Hit!"
-
             body = f"Entry: {entry:.4f} | Profit: {profit_pct:.2f}%\nSignal: {signal_time}"
-
-
-
+            
         msg = messaging.Message(
-
             notification=messaging.Notification(title=title, body=body),
-
             data={'type': 'tp_sl_hit', 'pair': pair},
-
             topic='trading_signals',
-
         )
 
         messaging.send(msg)
-
     except Exception as e:
-
         print(f"Notif Error: {e}")
 
-
-
 def check_reversal(doc_id, pair, original_action, is_crypto, signal_time):
-
-    """
-
-    Deteksi reversal: Kalau market berbalik arah drastis
-
-    Contoh: Signal LONG, tapi market mulai DOWNTREND kuat
-
-    """
-
     try:
-
-        # Fetch data terbaru
-
         if is_crypto:
-
             exchange = ccxt.binance()
-
             bars = exchange.fetch_ohlcv(pair, '15m', limit=100)
-
             df = pd.DataFrame(bars, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
-
         else:
-
-            return  # Skip untuk forex
-
-
-
-        # Hitung indikator cepat
+            return  
 
         df['EMA_50'] = ta.ema(df['close'], length=50)
-
         df['EMA_200'] = ta.ema(df['close'], length=200)
-
         df['RSI'] = ta.rsi(df['close'], length=14)
 
-
-
         last = df.iloc[-1]
-
         price = last['close']
 
-
-
-        # Cek apakah ada konflik kuat
-
         if original_action == "LONG":
-
-            # Kalau price turun dibawah EMA 200 + RSI > 60 = Reversal
-
             if price < last['EMA_200'] and last['RSI'] > 60:
-
                 invalidate_signal(doc_id, pair, "Bearish Reversal Detected", signal_time)
 
-
-
         elif original_action == "SHORT":
-
-            # Kalau price naik diatas EMA 200 + RSI < 40 = Reversal
-
             if price > last['EMA_200'] and last['RSI'] < 40:
-
                 invalidate_signal(doc_id, pair, "Bullish Reversal Detected", signal_time)
 
-
-
     except Exception as e:
-
         print(f"Reversal Check Error: {e}")
 
-
-
 def invalidate_signal(doc_id, pair, reason, signal_time):
-
-    """Invalidasi sinyal dan kirim notifikasi"""
-
     try:
-
         db.collection('signals').document(doc_id).update({
-
             'status': 'INVALID',
-
             'invalid_reason': reason,
-
             'invalid_time': datetime.now()
-
         })
 
-
-
         msg = messaging.Message(
-
             notification=messaging.Notification(
-
                 title=f"⚠️ {pair} - Signal Invalid",
-
                 body=f"{reason}\nScanning for new signal...\nSignal: {signal_time}"
-
             ),
-
             data={'type': 'signal_invalid'},
-
             topic='trading_signals',
-
         )
 
         messaging.send(msg)
-
         print(f"⚠️ {pair} INVALIDATED: {reason}")
-
     except Exception as e:
-
         print(f"Invalidate Error: {e}")
 
-
-
 def cleanup_old_signals():
-
-    """Hapus sinyal yang sudah selesai > 1 jam"""
-
     try:
-
         one_hour_ago = datetime.now() - pd.Timedelta(hours=1)
-
-
-
         old_signals = db.collection('signals').where('status', 'in', ['HIT_TP3', 'HIT_SL', 'INVALID']).stream()
-
-
-
         for sig in old_signals:
-
             data = sig.to_dict()
-
             hit_time = data.get('hit_time')
 
-
-
             if hit_time and hit_time < one_hour_ago:
-
                 db.collection('signals').document(sig.id).delete()
-
                 print(f"🗑️ Cleaned up old signal: {data['pair']}")
 
-
-
     except Exception as e:
-
         print(f"Cleanup Error: {e}")
 
-
-
-# ==========================================
-
-# NEW: SERVER HEALTH MONITOR
-
-# ==========================================
-
 def update_server_status():
-
-    """Update server status di Firebase"""
-
     try:
-
         status_data = {
-
             'status': 'ONLINE',
-
             'last_update': datetime.now(),
-
             'version': 'V3.0',
-
-            'signals_today': 0,  # Bisa dihitung dari Firestore
-
+            'signals_today': 0,  
             'performance': 'OPTIMAL'
-
         }
 
-
-
         db.collection('server_status').document('trading_bot').set(status_data)
-
         print("✅ Server Status Updated")
 
-
-
     except Exception as e:
-
         print(f"❌ Server Status Error: {e}")
 
-
-
-# ==========================================
-
-# SMART MARKET SUMMARY
-
-# ==========================================
-
 def generate_market_summary():
-
-    """Generate market summary + Fear & Greed + Market Mood"""
-
     try:
-
         exchange = ccxt.binance()
-
-
-
-        # 1. AMBIL DATA BTC
-
-        bars = exchange.fetch_ohlcv('BTC/USDT', '1d', limit=2) # Cukup 2 candle terakhir
-
+        bars = exchange.fetch_ohlcv('BTC/USDT', '1d', limit=2) 
         if not bars: return
 
-
-
-        # Hitung perubahan harga
-
         close_now = bars[-1][4]
-
         open_today = bars[-1][1]
-
         daily_change_pct = ((close_now - open_today) / open_today) * 100
 
-
-
-        # 2. TENTUKAN MOOD CRYPTO (Otomatis)
-
         mood_crypto = "SIDEWAYS 💤"
-
-        mood_color = "YELLOW" # Buat referensi warna di Flutter nanti
-
-
+        mood_color = "YELLOW"
 
         if daily_change_pct > 1.5:
-
             mood_crypto = "BULLISH 🐂"
-
         elif daily_change_pct < -1.5:
-
             mood_crypto = "BEARISH 🐻"
 
-
-
-        # 3. TENTUKAN VOLATILITAS (Otomatis)
-
         mood_volatility = "NORMAL 💧"
-
         if abs(daily_change_pct) > 4:
-
             mood_volatility = "EXTREME 🌊"
-
         elif abs(daily_change_pct) > 2.5:
-
             mood_volatility = "HIGH 🔥"
-
         elif abs(daily_change_pct) < 0.5:
-
             mood_volatility = "LOW ❄️"
-
-
-
-        # 4. AMBIL DATA LAIN (Gold & F&G)
 
         gold_price = get_current_price('XAU/USD', False)
 
-
-
-        # Tentukan Mood Gold/Forex (Simple Logic: Gold Naik = Dolar Lemah)
-
         mood_gold = "NEUTRAL ➖"
-
         if gold_price:
-
             if gold_price > 2000: mood_gold = "UPTREND 📈"
-
             else: mood_gold = "DOWNTREND 📉"
 
-
-
-        # API Fear & Greed
-
         fng_value = 50
-
         fng_text = "Neutral"
-
         try:
-
             r = requests.get("https://api.alternative.me/fng/?limit=1", timeout=3).json()
-
             fng_value = int(r['data'][0]['value'])
-
             fng_text = r['data'][0]['value_classification']
-
         except: pass
 
-
-
-        # 5. RACIK TEXT SUMMARY (Sama kayak tadi)
-
         summary = f"💰 **BTC**: ${close_now:,.0f} ({daily_change_pct:+.2f}%)\n"
-
         if daily_change_pct > 0: summary += "📈 Market menghijau hari ini.\n"
-
         else: summary += "📉 Market sedang koreksi merah.\n"
 
-
-
         if fng_value > 75: summary += f"⚠️ Hati-hati Extreme Greed ({fng_value}).\n"
-
         elif fng_value < 25: summary += f"✅ Waktunya serok di Extreme Fear ({fng_value}).\n"
 
-
-
-        # 6. SIMPAN SEMUA KE FIREBASE
-
         db.collection('market_summary').document('latest').set({
-
             'summary': summary,
-
             'timestamp': datetime.now(),
-
             'btc_price': close_now,
-
             'gold_price': gold_price,
-
             'fng_value': fng_value,
-
             'fng_text': fng_text,
 
-
-
-            # --- DATA MOOD BARU ---
-
             'mood_crypto': mood_crypto,
-
             'mood_gold': mood_gold,
-
             'mood_volatility': mood_volatility
-
         })
 
-
-
         print(f"✅ [MARKET] Updated: {mood_crypto} | Vol: {mood_volatility}")
-
-
-
     except Exception as e:
-
         print(f"❌ Market Error: {e}")
 
-
-
-# ==========================================
-
-# ENHANCE: ECONOMIC CALENDAR WITH SIMPLE INSIGHT
-
-# ==========================================
-
 def enhance_economic_insight(event_data):
-
-    """Tambahkan insight sederhana untuk user"""
-
     title = event_data['title']
-
     country = event_data['country']
-
     impact = event_data['impact']
 
-
-
-    # Simple rules untuk non-expert
-
     insight_rules = {
-
         'Non-Farm Payrolls': "📊 **NFP**: >200K = USD 🚀 | <100K = USD 📉",
-
         'CPI': "💰 **CPI**: >3% = Rate Hike Fear | <2% = Rate Cut Hope",
-
         'Interest Rate': "🏦 **Rates**: Hike = USD 📈 | Cut = USD 📉",
-
         'Unemployment': "👥 **Jobs**: Low = Economy Strong | High = Economy Weak",
-
         'GDP': "📈 **GDP**: Strong = Bullish | Weak = Bearish"
-
     }
 
-
-
-    # Cari insight yang relevan
-
     for key, insight in insight_rules.items():
-
         if key in title:
-
             return f"{insight}\n\n📉 Potensi: {country} pairs volatility tinggi!"
-
-
-
+            
     return "📊 Data ekonomi penting - watch for market moves!"
 
-
-
-# ==========================================
-
-# MAIN LOOP - UPDATE VERSION INFO
-
-# ==========================================
-
-print("--- 🚀 ALL SYSTEMS ONLINE (V3.0) ---")
-
 print("🔥 FEATURES: SMC + MULTI INDICATOR + ADVANCE FILTER + SMART POSITION SIZING")
-
-
-
 try:
-
     tmpex = ccxt.binance()
-
     trades = tmpex.fetch_trades('BTC/USDT', limit=1)
-
     last_processed_trade_id = int(trades[0]['id'])
-
 except:
-
     pass
 
-
-
 last_scan_signal = 0
-
 last_scan_calendar = 0
-
 last_status_update = 0
-
 last_market_update = 0
-
 last_stats_update = 0
-
 last_monitor_update = 0
 
-
-
 print("⚡ [STARTUP] Forcing Market & Stats Update...")
-
 try:
-
-    generate_market_summary()       # Paksa update Market & Fear Greed
-
-    calculate_performance_stats()   # Paksa update Win Rate
+    generate_market_summary()      
+    calculate_performance_stats()  
 
 except Exception as e:
-
     print(f"Startup Update Error: {e}")
 
-
-
 while True:
-
     try:
-
         check_whales()
 
-
-
-        # Cek setiap 10 detik biar real-time
-
         if time.time() - last_monitor_update > 10:
-
             monitor_active_signals()
-
             last_monitor_update = time.time()
 
-
-
-        # SCAN SIGNAL (Tiap 60 detik)
-
         if time.time() - last_scan_signal > 60:
-
             print(f"\n[{datetime.now().strftime('%H:%M')}] 🔍 Scanning Signals (Multi-Confluence V3.0)...")
-
             run_signal_scanner()
-
             last_scan_signal = time.time()
 
-
-
-        # CEK KALENDER (Tiap 5 menit)
-
         if time.time() - last_scan_calendar > 300:
-
             check_calendar()
-
             last_scan_calendar = time.time()
 
-
-
-        # UPDATE SERVER STATUS (Tiap 30 detik)
-
         if time.time() - last_status_update > 30:
-
             update_server_status()
-
             last_status_update = time.time()
 
-
-
-        # UPDATE MARKET & FEAR GREED (Tiap 60 detik)
-
         if time.time() - last_market_update > 60:
-
             print("    [MARKET] Updating Market Summary & F&G...")
-
             update_news_ticker()
-
             update_crypto_bubbles()
-
             generate_market_summary()
-
             last_market_update = time.time()
 
-
-
-        # UPDATE STATISTIK WIN RATE (Tiap 5 menit)
-
         if time.time() - last_stats_update > 300:
-
             calculate_performance_stats()
-
             last_stats_update = time.time()
 
-
-
-        time.sleep(10) # Istirahat 10 detik biar gak spam CPU
-
-
+        time.sleep(10) 
 
     except KeyboardInterrupt:
-
         print("\n👋 Bot Stopped by User")
-
         break
 
     except Exception as e:
-
         print(f"❌ Main Loop Error: {e}")
-
         time.sleep(10)
