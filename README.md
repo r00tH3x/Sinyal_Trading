@@ -90,20 +90,13 @@ python bot.py
 
 ------------------------------------------------------------------------
 
-## 💡 Rencana Pengembangan (Opsional)
+## 💡 Rencana Pengembangan 
 
 -   Integrasi ccxt untuk live chart data\
 -   Auto trading / semi-auto trading\
 -   Integrasi technical indicator\
 -   Mode backtesting\
 -   Mode monitoring 24/7 (daemon / systemd)
-
-------------------------------------------------------------------------
-
-## 📜 Lisensi
-
-Belum ditentukan. Tambahkan lisensi sesuai kebutuhan (MIT / Apache /
-GPL).
 
 ------------------------------------------------------------------------
 
