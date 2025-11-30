@@ -1,4 +1,4 @@
-# Sinyal_Trading
+# Sinyal_Trading📊
 
 ## 📄 Deskripsi
 
