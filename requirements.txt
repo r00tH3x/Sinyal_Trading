@@ -1,0 +1,9 @@
+numpy
+pandas
+pandas_ta
+ccxt
+yfinance
+mplfinance
+requests
+python-dateutil
+firebase-admin
