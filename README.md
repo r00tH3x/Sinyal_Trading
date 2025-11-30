@@ -62,8 +62,9 @@ python bot.py
 ## 📁 Struktur Proyek
 
     Sinyal_Trading/
-     ├── bot.py       # Script utama
-     ├── README.md    # Dokumentasi
+     ├── bot.py       
+     ├── requirements.txt
+     ├── README.md    
 
 ------------------------------------------------------------------------
 
